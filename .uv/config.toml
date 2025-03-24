@@ -1,0 +1,10 @@
+[tool.uv]
+python = "3.9"
+packages = [
+    "legion-query-runner>=1.0.1",
+    "uvicorn>=0.23.2",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.25.0",
+    "mcp>=1.0.0",
+    "pytest>=7.4.2",
+] 

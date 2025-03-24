@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[project]
+name = "legion-mcp"
+version = "0.1.0"
+description = "Legion Database Access MCP Server"
+requires-python = ">=3.10"
+dependencies = [
+    "legion-query-runner>=0.1.2",
+    "uvicorn>=0.23.2",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.25.0",
+    "mcp[cli]>=1.0.0",
+]
+
+[project.scripts]
+legion-mcp = "mcp_server:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["legion_mcp"]
