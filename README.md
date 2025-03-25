@@ -64,11 +64,7 @@ uv pip install -e ".[dev]"
 pytest
 ```
 
-## MCP Server Options
-
-This project provides multiple ways to run an MCP server depending on your needs:
-
-### 1. Standalone FastMCP Server
+## Standalone FastMCP Server
 
 The simplest approach using the high-level FastMCP API:
 
@@ -81,31 +77,6 @@ This runs a standalone MCP server using the FastMCP class, which provides:
 - Automatic context management
 - Lifecycle management via lifespan
 
-### 2. Low-level MCP Server
-
-For more control over the MCP protocol:
-
-```bash
-python mcp_server_lowlevel.py
-```
-
-This uses the low-level Server API for fine-grained control over:
-- Request handling
-- Type-safe context passing
-- Custom error handling
-
-### 3. FastAPI Integration
-
-For integrating MCP with an existing FastAPI application:
-
-```bash
-python mcp_fastapi_integration.py
-```
-
-This demonstrates:
-- Mounting an MCP server to a FastAPI application
-- Using both traditional REST endpoints and MCP
-- Sharing resources between REST and MCP
 
 ## MCP Development
 
@@ -188,11 +159,6 @@ Place this configuration in your editor's MCP settings file to enable database a
 - `explain_query` - Explain what a SQL query does
 - `optimize_query` - Optimize a SQL query for better performance
 
-## Traditional API Endpoints (FastAPI Integration)
-
-- `GET /api/databases` - List available databases
-- `POST /api/query` - Execute a SQL query
-
 ## Development
 
 Run tests:
@@ -202,4 +168,4 @@ pytest
 
 ## License
 
-MIT 
+This repository is licensed under CC BY-NC-SA 4.0
