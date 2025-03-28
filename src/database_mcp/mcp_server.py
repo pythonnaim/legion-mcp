@@ -22,23 +22,23 @@ def init_query_runner():
 
     # Use command line arguments for direct execution
     parser = argparse.ArgumentParser(description='Legion MCP Server')
-    parser.add_argument('--db-type', required=True, help='Database type (e.g., mysql, postgresql)')
-    parser.add_argument('--db-config', required=True, help='JSON string containing database configuration')
-    
+    parser.add_argument('--db-type', required=False, help='Database type (e.g., mysql, postgresql)')
+    parser.add_argument('--db-config', required=False, help='JSON string containing database configuration')
+
+    args = parser.parse_args()
+    db_type = args.db_type
+    db_config_str = args.db_config
     # Only parse args if we're not in MCP CLI mode
-    if len(sys.argv) > 1 and sys.argv[1] not in ["mcp", "install", "dev"]:
-        logger.log(logging.INFO, "Using command line arguments for database configuration")
-        args = parser.parse_args()
-        db_type = args.db_type
-        db_config = json.loads(args.db_config)
-    else:
-        logger.log(logging.INFO, "Using environment variables for database configuration")
-        # Use environment variables for MCP CLI mode
+    if not db_type:
         db_type = os.getenv("DB_TYPE", "pg")
-        db_config = json.loads(os.getenv("DB_CONFIG", ""))
+    if not db_config_str:
+        db_config_str = os.getenv("DB_CONFIG", "")
+    db_config = json.loads(db_config_str)
 
     if not db_type or not db_config:
         raise ValueError("Database type and configuration are required")
+
+    print(f"Initializing query runner for {db_type} database...")
         
     return QueryRunner(db_type=db_type, configuration=db_config)
 
@@ -220,6 +220,7 @@ def optimize_query(query: str) -> str:
     return f"Can you optimize the following SQL query for better performance?\n\n```sql\n{query}\n```"
 
 def main():
+    print("Starting Legion MCP server...")
     mcp.run()
 
 if __name__ == "__main__":

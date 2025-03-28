@@ -64,6 +64,18 @@ uv pip install -e ".[dev]"
 pytest
 ```
 
+### Publish
+
+```bash
+uv build
+```
+
+
+```bash
+rm -rf dist/ build/ *.egg-info/ && python -m build
+python -m build
+python -m twine upload dist/*
+```
 ## Standalone FastMCP Server
 
 The simplest approach using the high-level FastMCP API:
@@ -104,6 +116,12 @@ For direct execution, use command line arguments:
 
 ```bash
 python mcp_server.py --db-type pg --db-config '{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
+```
+
+or
+
+```bash
+uv mcp_server.py --db-type pg --db-config '{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
 ```
 
 ### MCP Settings JSON
@@ -169,3 +187,44 @@ pytest
 ## License
 
 This repository is licensed under CC BY-NC-SA 4.0
+
+## Running as an Installed Library
+
+When installed as a library, there are multiple ways to run the database-mcp server:
+
+### 1. Using the Entry Point
+
+If the package is properly installed, you can use the generated entry point:
+
+```bash
+database-mcp --db-type pg --db-config '{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
+```
+
+### 2. Using the Python Module Directly
+
+You can also run the module directly:
+
+```bash
+python -m database_mcp.mcp_server --db-type pg --db-config '{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
+```
+
+### 3. Importing in Your Code
+
+You can import and use the main function in your own Python code:
+
+```python
+from database_mcp import main
+
+# Run the MCP server
+main()
+```
+
+### 4. For Development
+
+During development, you can use the provided wrapper script:
+
+```bash
+./run-database-mcp.py --db-type pg --db-config '{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
+```
+
+This ensures the module is properly found regardless of your Python path configuration.

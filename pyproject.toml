@@ -1,30 +1,37 @@
 [build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "legion-mcp"
-version = "0.1.0"
-description = "Legion Database Access MCP Server"
+name = "database-mcp"
+version = "0.1.2"
+authors = [
+  { name="Legion AI", email="luke@thelegionai.com" },
+]
+readme = "README.md"
+description = "A MCP server that helps access and query data in various popular databases"
 requires-python = ">=3.10"
 dependencies = [
-    "legion-query-runner>=0.1.2",
-    "uvicorn>=0.23.2",
+    "legion-query-runner>=0.1.3",
     "python-dotenv>=1.0.0",
-    "httpx>=0.25.0",
-    "mcp[cli]>=1.0.0",
+    "mcp>=1.0.0",
 ]
+license = "GPL-3.0-or-later"
 
 [project.scripts]
-legion-mcp = "mcp_server:main"
-
-[tool.hatch.metadata]
-allow-direct-references = true
+database-mcp = "database_mcp.mcp_server:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.2",
+    "mcp[cli]>=1.0.0",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["legion_mcp"]
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.urls]
+Homepage = "https://github.com/TheRaLabs/legion-mcp"
