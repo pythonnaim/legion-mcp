@@ -2,6 +2,10 @@
 
 A server that helps people access and query data in databases using the Legion Query Runner with integration of the Model Context Protocol (MCP) Python SDK.
 
+# Start Generation Here
+This tool is provided by [Legion AI](https://thelegionai.com/). To use the full-fledged and fully powered AI data analytics tool, please visit the site.
+# End Generation Here
+
 ## Features
 
 - Database access via Legion Query Runner
