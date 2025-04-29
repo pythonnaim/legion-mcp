@@ -3,17 +3,19 @@
 A server that helps people access and query data in databases using the Legion Query Runner with integration of the Model Context Protocol (MCP) Python SDK.
 
 # Start Generation Here
-This tool is provided by [Legion AI](https://thelegionai.com/). To use the full-fledged and fully powered AI data analytics tool, please visit the site.
+This tool is provided by [Legion AI](https://thelegionai.com/). To use the full-fledged and fully powered AI data analytics tool, please visit the site. Email us if there is one database you want us to support.
 # End Generation Here
 
 ## Features
 
+- Multi-database support - connect to multiple databases simultaneously
 - Database access via Legion Query Runner
 - Model Context Protocol (MCP) support for AI assistants
 - Expose database operations as MCP resources, tools, and prompts
 - Multiple deployment options (standalone MCP server, FastAPI integration)
 - Query execution and result handling
 - Flexible configuration via environment variables, command-line arguments, or MCP settings JSON
+- User-driven database selection for multi-database setups
 
 ## Supported Databases
 
@@ -44,12 +46,17 @@ The Model Context Protocol (MCP) is a specification for maintaining context in A
 
 ### Required Parameters
 
-Two parameters are required for all installation methods:
-
+For single database configuration:
 - **DB_TYPE**: The database type code (see table above)
 - **DB_CONFIG**: A JSON configuration string for database connection
 
-The DB_CONFIG format varies by database type. See the [API documentation](https://theralabs.github.io/legion-database/docs/category/query-runners) for database-specific configuration details.
+For multi-database configuration:
+- **DB_CONFIGS**: A JSON array of database configurations, each containing:
+  - **db_type**: The database type code
+  - **configuration**: Database connection configuration
+  - **description**: A human-readable description of the database
+
+The configuration format varies by database type. See the [API documentation](https://theralabs.github.io/legion-database/docs/category/query-runners) for database-specific configuration details.
 
 ### Installation Methods
 
@@ -57,14 +64,9 @@ The DB_CONFIG format varies by database type. See the [API documentation](https:
 
 When using [`uv`](https://docs.astral.sh/uv/), no specific installation is needed. We will use [`uvx`](https://docs.astral.sh/uv/guides/tools/) to directly run *database-mcp*.
 
-**UV Configuration Example:**
+**UV Configuration Example (Single Database):**
 
 ```json
-
-
-
-
-
 REPLACE DB_TYPE and DB_CONFIG with your connection info.
 {
     "mcpServers": {
@@ -84,6 +86,26 @@ REPLACE DB_TYPE and DB_CONFIG with your connection info.
 }
 ```
 
+**UV Configuration Example (Multiple Databases):**
+
+```json
+{
+    "mcpServers": {
+      "database-mcp": {
+        "command": "uvx",
+        "args": [
+          "database-mcp"
+        ],
+        "env": {
+          "DB_CONFIGS": "[{\"db_type\":\"pg\",\"configuration\":{\"host\":\"localhost\",\"port\":5432,\"user\":\"user\",\"password\":\"pw\",\"dbname\":\"postgres\"},\"description\":\"PostgreSQL Database\"},{\"db_type\":\"mysql\",\"configuration\":{\"host\":\"localhost\",\"port\":3306,\"user\":\"root\",\"password\":\"pass\",\"database\":\"mysql\"},\"description\":\"MySQL Database\"}]"
+        },
+        "disabled": true,
+        "autoApprove": []
+      }
+    }
+}
+```
+
 #### Option 2: Using PIP
 
 Install via pip:
@@ -92,7 +114,7 @@ Install via pip:
 pip install database-mcp
 ```
 
-**PIP Configuration Example:**
+**PIP Configuration Example (Single Database):**
 
 ```json
 {
@@ -128,7 +150,7 @@ python mcp_server.py
 
 ### Configuration Methods
 
-#### Environment Variables
+#### Environment Variables (Single Database)
 
 ```bash
 export DB_TYPE="pg"  # or mysql, postgresql, etc.
@@ -136,17 +158,35 @@ export DB_CONFIG='{"host":"localhost","port":5432,"user":"username","password":"
 mcp dev mcp_server.py
 ```
 
-#### Command Line Arguments
+#### Environment Variables (Multiple Databases)
+
+```bash
+export DB_CONFIGS='[{"db_type":"pg","configuration":{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"},"description":"PostgreSQL Database"},{"db_type":"mysql","configuration":{"host":"localhost","port":3306,"user":"root","password":"pass","database":"mysql"},"description":"MySQL Database"}]'
+mcp dev mcp_server.py
+```
+
+#### Command Line Arguments (Single Database)
 
 ```bash
 python mcp_server.py --db-type pg --db-config '{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
 ```
 
-Or with UV:
+#### Command Line Arguments (Multiple Databases)
 
 ```bash
-uv mcp_server.py --db-type pg --db-config '{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
+python mcp_server.py --db-configs '[{"db_type":"pg","configuration":{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"},"description":"PostgreSQL Database"},{"db_type":"mysql","configuration":{"host":"localhost","port":3306,"user":"root","password":"pass","database":"mysql"},"description":"MySQL Database"}]'
 ```
+
+## Multi-Database Support
+
+When connecting to multiple databases, you need to specify which database to use for each query:
+
+1. Use the `list_databases` tool to see available databases with their indices
+2. Use `get_database_info` to view schema details of databases
+3. Use `find_table` to locate a table across all databases
+4. Provide the `db_index` parameter to tools like `execute_query`, `get_table_columns`, etc.
+
+The `select_database` prompt guides users through the database selection process.
 
 ## Exposed MCP Capabilities
 
@@ -154,7 +194,7 @@ uv mcp_server.py --db-type pg --db-config '{"host":"localhost","port":5432,"user
 
 | Resource | Description |
 |----------|-------------|
-| `schema://all` | Get the complete database schema |
+| `schema://all` | Get the schemas for all configured databases |
 
 ### Tools
 
@@ -165,6 +205,9 @@ uv mcp_server.py --db-type pg --db-config '{"host":"localhost","port":5432,"user
 | `get_table_columns` | Get column names for a specific table |
 | `get_table_types` | Get column types for a specific table |
 | `get_query_history` | Get the recent query history |
+| `list_databases` | List all available database connections |
+| `get_database_info` | Get detailed information about a database |
+| `find_table` | Find which database contains a specific table |
 
 ### Prompts
 
@@ -173,6 +216,7 @@ uv mcp_server.py --db-type pg --db-config '{"host":"localhost","port":5432,"user
 | `sql_query` | Create an SQL query against the database |
 | `explain_query` | Explain what a SQL query does |
 | `optimize_query` | Optimize a SQL query for better performance |
+| `select_database` | Help user select which database to use |
 
 ## Development
 
