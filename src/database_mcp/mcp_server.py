@@ -39,12 +39,12 @@ def init_query_runners(testing=False, test_db_type=None, test_db_config=None, te
     """
     if not testing:
     # Use command line arguments for direct execution
-    parser = argparse.ArgumentParser(description='Legion MCP Server')
-    parser.add_argument('--db-type', required=False, help='Database type (e.g., mysql, postgresql)')
-    parser.add_argument('--db-config', required=False, help='JSON string containing database configuration')
+        parser = argparse.ArgumentParser(description='Legion MCP Server')
+        parser.add_argument('--db-type', required=False, help='Database type (e.g., mysql, postgresql)')
+        parser.add_argument('--db-config', required=False, help='JSON string containing database configuration')
         parser.add_argument('--db-configs', required=False, help='JSON string array containing multiple database configurations')
 
-    args = parser.parse_args()
+        args = parser.parse_args()
         
         # Check for multiple database configuration first
         db_configs_str = args.db_configs
@@ -52,8 +52,8 @@ def init_query_runners(testing=False, test_db_type=None, test_db_config=None, te
             db_configs_str = os.getenv("DB_CONFIGS", "")
         
         # Get single database config if needed
-    db_type = args.db_type
-    db_config_str = args.db_config
+        db_type = args.db_type
+        db_config_str = args.db_config
     else:
         # For testing, use provided test values
         db_configs_str = test_db_configs
@@ -130,17 +130,17 @@ _is_test = 'pytest' in sys.modules
 if not _is_test:
     try:
         query_runners = init_query_runners()
-except Exception as e:
+    except Exception as e:
         print(f"Error initializing query runners: {str(e)}")
-    print("\nUsage:")
+        print("\nUsage:")
         print("1. For MCP CLI mode with single database:")
         print("   Set environment variables: DB_TYPE, DB_CONFIG")
         print("   Or for multiple databases: DB_CONFIGS='[{\"db_type\":\"pg\",\"configuration\":{...},\"description\":\"My PostgreSQL DB\"}]'")
-    print("   Then run: mcp install mcp_server.py")
-    print("   Or: mcp dev mcp_server.py")
+        print("   Then run: mcp install mcp_server.py")
+        print("   Or: mcp dev mcp_server.py")
         print("\n2. For direct execution with single database:")
-    print("   python mcp_server.py --db-type <db_type> --db-config '<json_config>'")
-    print("   Example: python mcp_server.py --db-type mysql --db-config '{\"host\":\"localhost\",\"port\":3306,\"user\":\"root\",\"password\":\"pass\",\"database\":\"test\"}'")
+        print("   python mcp_server.py --db-type <db_type> --db-config '<json_config>'")
+        print("   Example: python mcp_server.py --db-type mysql --db-config '{\"host\":\"localhost\",\"port\":3306,\"user\":\"root\",\"password\":\"pass\",\"database\":\"test\"}'")
         print("\n3. For direct execution with multiple databases:")
         print("   python mcp_server.py --db-configs '[{\"db_type\":\"pg\",\"configuration\":{\"host\":\"localhost\"},\"description\":\"My PostgreSQL DB\"}]'")
     sys.exit(1)
