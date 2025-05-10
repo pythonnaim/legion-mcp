@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "database-mcp"
-version = "0.1.2"
+version = "0.1.4"
 authors = [
   { name="Legion AI", email="luke@thelegionai.com" },
 ]
@@ -32,6 +32,12 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv]
+dev-dependencies = [
+    "build>=1.2.2.post1",
+    "twine>=6.1.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/TheRaLabs/legion-mcp"
