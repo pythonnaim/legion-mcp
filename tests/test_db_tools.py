@@ -45,7 +45,7 @@ class MockQueryRunner:
         self.configuration = configuration
     
     def get_schema(self):
-        return {"tables": []}
+        return []
     
     def test_connection(self):
         return True
@@ -80,14 +80,15 @@ with patch.dict('sys.modules', {
 def db_config_class():
     """Create a DbConfig class for testing"""
     from dataclasses import dataclass
-    from typing import Dict, Any, Optional
+    from typing import Dict, Any, Optional, List
     
     @dataclass
     class DbConfig:
+        id: str
         db_type: str
         configuration: Dict[str, Any]
         description: str
-        schema: Optional[Dict[str, Any]] = None
+        schema: Optional[List[Dict[str, Any]]] = None
         query_runner: Optional[Any] = None
     
     return DbConfig
@@ -105,34 +106,32 @@ def test_get_database_schema_summary(monkeypatch):
     assert summary == "Schema information not available"
     
     # Test with empty tables
-    db_config = MockDbConfig(schema={"tables": []})
+    db_config = MockDbConfig(schema=[])
     summary = get_database_schema_summary(db_config)
     assert summary == "No tables found in schema"
     
     # Test with tables
-    schema = {
-        "tables": [
-            {
-                "name": "users",
-                "columns": [
-                    {"name": "id"},
-                    {"name": "name"},
-                    {"name": "email"}
-                ]
-            },
-            {
-                "name": "orders",
-                "columns": [
-                    {"name": "id"},
-                    {"name": "user_id"},
-                    {"name": "product_id"},
-                    {"name": "quantity"},
-                    {"name": "price"},
-                    {"name": "status"}
-                ]
-            }
-        ]
-    }
+    schema = [
+        {
+            "name": "users",
+            "columns": [
+                {"name": "id"},
+                {"name": "name"},
+                {"name": "email"}
+            ]
+        },
+        {
+            "name": "orders",
+            "columns": [
+                {"name": "id"},
+                {"name": "user_id"},
+                {"name": "product_id"},
+                {"name": "quantity"},
+                {"name": "price"},
+                {"name": "status"}
+            ]
+        }
+    ]
     db_config = MockDbConfig(schema=schema)
     summary = get_database_schema_summary(db_config)
     assert "- users (id, name, email)" in summary
@@ -142,7 +141,7 @@ def test_get_database_schema_summary(monkeypatch):
 def mock_ctx():
     """Create a mock context with lifespan_context for database tools"""
     mock_ctx = MockContext()
-    mock_ctx.request_context.lifespan_context.query_runners = []
+    mock_ctx.request_context.lifespan_context.db_configs = {}
     mock_ctx.request_context.lifespan_context.query_history = []
     return mock_ctx
 
@@ -150,68 +149,70 @@ def test_list_databases(db_config_class, mock_ctx):
     """Test list_databases tool"""
     # Create mock DbConfigs
     db_config1 = db_config_class(
+        id="pg_db",
         db_type="pg",
         configuration={"host": "localhost"},
         description="PostgreSQL DB",
-        schema={"tables": [{"name": "users"}, {"name": "products"}]}
+        schema=[{"name": "users"}, {"name": "products"}]
     )
     
     db_config2 = db_config_class(
+        id="mysql_db",
         db_type="mysql",
         configuration={"host": "localhost"},
         description="MySQL DB",
-        schema={"tables": [{"name": "customers"}, {"name": "orders"}, {"name": "items"}]}
+        schema=[{"name": "customers"}, {"name": "orders"}, {"name": "items"}]
     )
     
     # Set up mock context
-    mock_ctx.request_context.lifespan_context.query_runners = [db_config1, db_config2]
+    mock_ctx.request_context.lifespan_context.db_configs = {
+        "pg_db": db_config1,
+        "mysql_db": db_config2
+    }
     
     # Call the function
     output = list_databases(mock_ctx)
     
     # Verify output contains database info
-    assert "0. PostgreSQL DB (Type: pg) - 2 tables" in output
-    assert "1. MySQL DB (Type: mysql) - 3 tables" in output
+    assert "ID: pg_db - PostgreSQL DB (Type: pg)" in output
+    assert "ID: mysql_db - MySQL DB (Type: mysql)" in output
 
 def test_list_databases_no_schema(db_config_class, mock_ctx):
     """Test list_databases tool with no schema information"""
     # Create mock DbConfigs
     db_config1 = db_config_class(
+        id="pg_db",
         db_type="pg",
         configuration={"host": "localhost"},
         description="PostgreSQL DB"
     )
     
     # Set up mock context
-    mock_ctx.request_context.lifespan_context.query_runners = [db_config1]
+    mock_ctx.request_context.lifespan_context.db_configs = {"pg_db": db_config1}
     
     # Call the function
     output = list_databases(mock_ctx)
     
     # Verify output contains database info without table count
-    assert "0. PostgreSQL DB (Type: pg)" in output
+    assert "ID: pg_db - PostgreSQL DB (Type: pg)" in output
     assert "tables" not in output
 
 def test_find_table_found(db_config_class, mock_ctx):
     """Test find_table tool when table is found"""
     # Create schemas with tables
-    schema1 = {
-        "tables": [
-            {"name": "users"},
-            {"name": "products"}
-        ]
-    }
+    schema1 = [
+        {"name": "users"},
+        {"name": "products"}
+    ]
     
-    schema2 = {
-        "tables": [
-            {"name": "customers"},
-            {"name": "orders"},
-            {"name": "users"}  # Also in schema2
-        ]
-    }
+    schema2 = [
+        {"name": "customers"},
+        {"name": "orders"}
+    ]
     
     # Create mock DbConfigs
     db_config1 = db_config_class(
+        id="pg_db",
         db_type="pg",
         configuration={"host": "localhost"},
         description="PostgreSQL DB",
@@ -219,6 +220,7 @@ def test_find_table_found(db_config_class, mock_ctx):
     )
     
     db_config2 = db_config_class(
+        id="mysql_db",
         db_type="mysql",
         configuration={"host": "localhost"},
         description="MySQL DB",
@@ -226,69 +228,29 @@ def test_find_table_found(db_config_class, mock_ctx):
     )
     
     # Set up mock context
-    mock_ctx.request_context.lifespan_context.query_runners = [db_config1, db_config2]
+    mock_ctx.request_context.lifespan_context.db_configs = {
+        "pg_db": db_config1,
+        "mysql_db": db_config2
+    }
     
     # Call the function
     output = find_table("users", mock_ctx)
     
-    # Verify output contains both database references
+    # Verify output shows the table was found
     assert "Table 'users' was found in the following databases:" in output
-    assert "Database 0: PostgreSQL DB (Type: pg)" in output
-    assert "Database 1: MySQL DB (Type: mysql)" in output
+    assert "Database ID: pg_db - PostgreSQL DB" in output
 
 def test_find_table_not_found(db_config_class, mock_ctx):
     """Test find_table tool when table is not found"""
-    # Create schemas with tables
-    schema1 = {
-        "tables": [
-            {"name": "users"},
-            {"name": "products"}
-        ]
-    }
+    # Create schema with tables
+    schema = [
+        {"name": "users"},
+        {"name": "products"}
+    ]
     
     # Create mock DbConfigs
     db_config1 = db_config_class(
-        db_type="pg",
-        configuration={"host": "localhost"},
-        description="PostgreSQL DB",
-        schema=schema1
-    )
-    
-    # Set up mock context
-    mock_ctx.request_context.lifespan_context.query_runners = [db_config1]
-    
-    # Call the function
-    output = find_table("customers", mock_ctx)
-    
-    # Verify output indicates table not found
-    assert "Table 'customers' was not found in any database schema." in output
-
-def test_get_database_info(db_config_class, mock_ctx):
-    """Test get_database_info tool"""
-    # Create schemas with tables
-    schema = {
-        "tables": [
-            {
-                "name": "users",
-                "columns": [
-                    {"name": "id"},
-                    {"name": "name"},
-                    {"name": "email"}
-                ]
-            },
-            {
-                "name": "products",
-                "columns": [
-                    {"name": "id"},
-                    {"name": "name"},
-                    {"name": "price"}
-                ]
-            }
-        ]
-    }
-    
-    # Create mock DbConfigs
-    db_config = db_config_class(
+        id="pg_db",
         db_type="pg",
         configuration={"host": "localhost"},
         description="PostgreSQL DB",
@@ -296,14 +258,105 @@ def test_get_database_info(db_config_class, mock_ctx):
     )
     
     # Set up mock context
-    mock_ctx.request_context.lifespan_context.query_runners = [db_config]
+    mock_ctx.request_context.lifespan_context.db_configs = {"pg_db": db_config1}
     
-    # Call the function with specific db_index
-    output = get_database_info(mock_ctx, 0)
+    # Call the function
+    output = find_table("orders", mock_ctx)
     
-    # Verify output contains database info
-    assert "Database 0: PostgreSQL DB" in output
+    # Verify output shows the table was not found
+    assert "Table 'orders' was not found in any database schema." in output
+
+def test_get_database_info(db_config_class, mock_ctx):
+    """Test get_database_info tool"""
+    # Create schema with tables
+    schema = [
+        {
+            "name": "users",
+            "columns": [
+                {"name": "id"},
+                {"name": "name"},
+                {"name": "email"}
+            ]
+        },
+        {
+            "name": "products",
+            "columns": [
+                {"name": "id"},
+                {"name": "name"},
+                {"name": "price"}
+            ]
+        }
+    ]
+    
+    # Create mock DbConfigs
+    db_config = db_config_class(
+        id="pg_db",
+        db_type="pg",
+        configuration={"host": "localhost"},
+        description="PostgreSQL DB",
+        schema=schema
+    )
+    
+    # Set up mock context
+    mock_ctx.request_context.lifespan_context.db_configs = {"pg_db": db_config}
+    
+    # Call the function with specific db_id
+    output = get_database_info(mock_ctx, db_id="pg_db")
+    
+    # Verify output contains database info and schema summary
+    assert "Database ID: pg_db" in output
+    assert "Description: PostgreSQL DB" in output
     assert "Type: pg" in output
-    assert "Schema Summary:" in output
     assert "- users (id, name, email)" in output
-    assert "- products (id, name, price)" in output 
+    assert "- products (id, name, price)" in output
+
+def test_get_database_info_all(db_config_class, mock_ctx):
+    """Test get_database_info tool for all databases"""
+    # Create schemas
+    schema1 = [
+        {
+            "name": "users",
+            "columns": [{"name": "id"}, {"name": "name"}]
+        }
+    ]
+    
+    schema2 = [
+        {
+            "name": "orders",
+            "columns": [{"name": "id"}, {"name": "user_id"}]
+        }
+    ]
+    
+    # Create mock DbConfigs
+    db_config1 = db_config_class(
+        id="pg_db",
+        db_type="pg",
+        configuration={"host": "localhost"},
+        description="PostgreSQL DB",
+        schema=schema1
+    )
+    
+    db_config2 = db_config_class(
+        id="mysql_db",
+        db_type="mysql",
+        configuration={"host": "localhost"},
+        description="MySQL DB",
+        schema=schema2
+    )
+    
+    # Set up mock context
+    mock_ctx.request_context.lifespan_context.db_configs = {
+        "pg_db": db_config1,
+        "mysql_db": db_config2
+    }
+    
+    # Call the function without specifying a db_id
+    output = get_database_info(mock_ctx)
+    
+    # Verify output contains information for all databases
+    assert "Database ID: pg_db" in output
+    assert "Database ID: mysql_db" in output
+    assert "PostgreSQL DB" in output
+    assert "MySQL DB" in output
+    assert "- users (id, name)" in output
+    assert "- orders (id, user_id)" in output 

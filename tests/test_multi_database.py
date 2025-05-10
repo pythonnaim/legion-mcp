@@ -85,19 +85,28 @@ def init_query_runners_for_test(db_type=None, db_config=None, db_configs=None):
         if not isinstance(db_configs_list, list) or len(db_configs_list) == 0:
             raise ValueError("DB_CONFIGS must be a non-empty JSON array")
         
-        query_runners = []
-        for config in db_configs_list:
+        query_runners = {}
+        for i, config in enumerate(db_configs_list):
             if not isinstance(config, dict) or "db_type" not in config or "configuration" not in config or "description" not in config:
                 raise ValueError("Each DB_CONFIG must contain db_type, configuration, and description")
             
+            # Generate a meaningful ID if not provided
+            db_id = config.get("id", "")
+            if not db_id:
+                # Create an ID based on database type and description
+                db_type_abbr = config["db_type"][:2].lower()
+                desc_part = ''.join(c for c in config["description"] if c.isalnum())[:8].lower()
+                db_id = f"{db_type_abbr}_{desc_part}_{i}"
+            
             db_config_obj = DbConfig(
+                id=db_id,
                 db_type=config["db_type"],
                 configuration=config["configuration"],
                 description=config["description"]
             )
             
             db_config_obj.query_runner = QueryRunner(db_type=db_config_obj.db_type, configuration=db_config_obj.configuration)
-            query_runners.append(db_config_obj)
+            query_runners[db_id] = db_config_obj
         
         return query_runners
     
@@ -113,25 +122,31 @@ def init_query_runners_for_test(db_type=None, db_config=None, db_configs=None):
     if not db_type or not db_config:
         raise ValueError("Database type and configuration are required")
     
+    # Generate a meaningful ID for the single database
+    db_id = f"{db_type.lower()}_default"
+    
     db_config_obj = DbConfig(
+        id=db_id,
         db_type=db_type,
         configuration=db_config,
         description="Default database connection"
     )
     db_config_obj.query_runner = QueryRunner(db_type=db_type, configuration=db_config)
     
-    return [db_config_obj]
+    return {db_id: db_config_obj}
 
 
 class TestDbConfig:
     def test_db_config_init(self):
         """Test DbConfig initialization"""
         config = DbConfig(
+            id="test_db",
             db_type="pg",
             configuration={"host": "localhost"},
             description="Test DB"
         )
         
+        assert config.id == "test_db"
         assert config.db_type == "pg"
         assert config.configuration == {"host": "localhost"}
         assert config.description == "Test DB"
@@ -143,14 +158,15 @@ class TestDbContext:
     def test_db_context_init(self):
         """Test DbContext initialization"""
         db_config = DbConfig(
+            id="test_db",
             db_type="pg",
             configuration={"host": "localhost"},
             description="Test DB"
         )
         
-        context = DbContext(query_runners=[db_config])
+        context = DbContext(db_configs={"test_db": db_config})
         
-        assert context.query_runners == [db_config]
+        assert context.db_configs == {"test_db": db_config}
         assert context.last_query is None
         assert context.last_result is None
         assert context.query_history == []
@@ -161,6 +177,7 @@ class TestDbContext:
         mock_runner = MagicMock()
         
         db_config1 = DbConfig(
+            id="test_db1",
             db_type="pg",
             configuration={"host": "localhost"},
             description="Test DB 1"
@@ -168,18 +185,19 @@ class TestDbContext:
         db_config1.query_runner = mock_runner
         
         db_config2 = DbConfig(
+            id="test_db2",
             db_type="mysql",
             configuration={"host": "localhost"},
             description="Test DB 2"
         )
         
         # Test with multiple runners
-        context = DbContext(query_runners=[db_config1, db_config2])
+        context = DbContext(db_configs={"test_db1": db_config1, "test_db2": db_config2})
         assert context.get_default_query_runner() == mock_runner
         
         # Test with empty runners list
         with pytest.raises(ValueError, match="No database connections available"):
-            DbContext(query_runners=[]).get_default_query_runner()
+            DbContext(db_configs={}).get_default_query_runner()
 
 
 class TestInitQueryRunners:
@@ -197,21 +215,26 @@ class TestInitQueryRunners:
         
         # Verify result
         assert len(result) == 1
-        assert result[0].db_type == 'pg'
-        assert result[0].configuration == {"host": "localhost", "port": 5432}
-        assert result[0].description == "Default database connection"
-        assert result[0].query_runner == mock_query_runner_instance
+        db_id = "pg_default"
+        assert db_id in result
+        assert result[db_id].db_type == 'pg'
+        assert result[db_id].configuration == {"host": "localhost", "port": 5432}
+        assert result[db_id].description == "Default database connection"
+        assert result[db_id].query_runner == mock_query_runner_instance
         
-        # Verify QueryRunner was called with correct args
+        # Verify QueryRunner creation
         mock_query_runner.assert_called_once_with(
-            db_type='pg', 
+            db_type='pg',
             configuration={"host": "localhost", "port": 5432}
         )
-
+    
     @patch('database_mcp.mcp_server.QueryRunner')
     def test_init_multiple_dbs(self, mock_query_runner):
         """Test initialization of multiple databases"""
-        # Multiple DB config
+        # Mock QueryRunner instances
+        mock_query_runner_instances = [MagicMock(), MagicMock()]
+        mock_query_runner.side_effect = mock_query_runner_instances
+        
         db_configs = [
             {
                 "db_type": "pg",
@@ -225,36 +248,35 @@ class TestInitQueryRunners:
             }
         ]
         
-        # Mock QueryRunner instances
-        mock_pg_runner = MagicMock()
-        mock_mysql_runner = MagicMock()
-        mock_query_runner.side_effect = [mock_pg_runner, mock_mysql_runner]
-        
         result = init_query_runners_for_test(db_configs=db_configs)
         
         # Verify result
         assert len(result) == 2
         
-        # First DB should be PostgreSQL
-        assert result[0].db_type == 'pg'
-        assert result[0].configuration == {"host": "localhost", "port": 5432}
-        assert result[0].description == "PostgreSQL DB"
-        assert result[0].query_runner == mock_pg_runner
+        # Expected IDs based on our generation logic
+        pg_id = "pg_postgres_0"
+        mysql_id = "my_mysqldb_1"
         
-        # Second DB should be MySQL
-        assert result[1].db_type == 'mysql'
-        assert result[1].configuration == {"host": "localhost", "port": 3306}
-        assert result[1].description == "MySQL DB"
-        assert result[1].query_runner == mock_mysql_runner
+        assert pg_id in result
+        assert result[pg_id].db_type == 'pg'
+        assert result[pg_id].configuration == {"host": "localhost", "port": 5432}
+        assert result[pg_id].description == "PostgreSQL DB"
+        assert result[pg_id].query_runner == mock_query_runner_instances[0]
         
-        # Verify QueryRunner was called with correct args
+        assert mysql_id in result
+        assert result[mysql_id].db_type == 'mysql'
+        assert result[mysql_id].configuration == {"host": "localhost", "port": 3306}
+        assert result[mysql_id].description == "MySQL DB"
+        assert result[mysql_id].query_runner == mock_query_runner_instances[1]
+        
+        # Verify QueryRunner creation
         assert mock_query_runner.call_count == 2
         mock_query_runner.assert_any_call(
-            db_type='pg', 
+            db_type='pg',
             configuration={"host": "localhost", "port": 5432}
         )
         mock_query_runner.assert_any_call(
-            db_type='mysql', 
+            db_type='mysql',
             configuration={"host": "localhost", "port": 3306}
         )
 
@@ -263,6 +285,7 @@ class TestDatabaseTools:
     def test_get_database_schema_summary_no_schema(self):
         """Test get_database_schema_summary with no schema"""
         db_config = DbConfig(
+            id="test_db",
             db_type="pg",
             configuration={"host": "localhost"},
             description="Test DB"
@@ -274,10 +297,11 @@ class TestDatabaseTools:
     def test_get_database_schema_summary_no_tables(self):
         """Test get_database_schema_summary with empty tables"""
         db_config = DbConfig(
+            id="test_db",
             db_type="pg",
             configuration={"host": "localhost"},
             description="Test DB",
-            schema={"tables": []}
+            schema=[]
         )
         
         summary = get_database_schema_summary(db_config)
@@ -285,31 +309,30 @@ class TestDatabaseTools:
     
     def test_get_database_schema_summary_with_tables(self):
         """Test get_database_schema_summary with tables"""
-        schema = {
-            "tables": [
-                {
-                    "name": "users",
-                    "columns": [
-                        {"name": "id"},
-                        {"name": "name"},
-                        {"name": "email"}
-                    ]
-                },
-                {
-                    "name": "orders",
-                    "columns": [
-                        {"name": "id"},
-                        {"name": "user_id"},
-                        {"name": "product_id"},
-                        {"name": "quantity"},
-                        {"name": "price"},
-                        {"name": "status"}
-                    ]
-                }
-            ]
-        }
+        schema = [
+            {
+                "name": "users",
+                "columns": [
+                    {"name": "id"},
+                    {"name": "name"},
+                    {"name": "email"}
+                ]
+            },
+            {
+                "name": "orders",
+                "columns": [
+                    {"name": "id"},
+                    {"name": "user_id"},
+                    {"name": "product_id"},
+                    {"name": "quantity"},
+                    {"name": "price"},
+                    {"name": "status"}
+                ]
+            }
+        ]
         
         db_config = DbConfig(
+            id="test_db",
             db_type="pg",
             configuration={"host": "localhost"},
             description="Test DB",
@@ -337,7 +360,7 @@ def test_execute_query(mock_execute):
         'raw_rows': [{'id': 1, 'name': 'Product 1'}, {'id': 2, 'name': 'Product 2'}],
         'row_count': 2,
         'database': {
-            'index': 0,
+            'id': 'test_db',
             'description': 'Test DB',
             'db_type': 'pg'
         }
@@ -345,10 +368,10 @@ def test_execute_query(mock_execute):
     mock_execute.return_value = result
     
     # Call the function
-    output = execute_query('SELECT * FROM products', mock_ctx, 0)
+    output = execute_query('SELECT * FROM products', mock_ctx, 'test_db')
     
     # Verify mock was called correctly
-    mock_execute.assert_called_once_with('SELECT * FROM products', mock_ctx, 0)
+    mock_execute.assert_called_once_with('SELECT * FROM products', mock_ctx, 'test_db')
     
     # Verify output format - accept either output format
     assert any(
@@ -378,7 +401,7 @@ def test_execute_query_json(mock_execute):
         'raw_rows': [{'id': 1, 'name': 'Product 1'}, {'id': 2, 'name': 'Product 2'}],
         'row_count': 2,
         'database': {
-            'index': 0,
+            'id': 'test_db',
             'description': 'Test DB',
             'db_type': 'pg'
         }
@@ -386,10 +409,10 @@ def test_execute_query_json(mock_execute):
     mock_execute.return_value = result
     
     # Call the function
-    output = execute_query_json('SELECT * FROM products', mock_ctx, 0)
+    output = execute_query_json('SELECT * FROM products', mock_ctx, 'test_db')
     
     # Verify mock was called correctly
-    mock_execute.assert_called_once_with('SELECT * FROM products', mock_ctx, 0)
+    mock_execute.assert_called_once_with('SELECT * FROM products', mock_ctx, 'test_db')
     
     # Parse JSON output
     output_json = json.loads(output)
@@ -409,31 +432,36 @@ def test_list_databases():
     
     # Create mock DbConfigs
     db_config1 = DbConfig(
+        id="pg_db",
         db_type="pg",
         configuration={"host": "localhost"},
         description="PostgreSQL DB",
-        schema={"tables": [{"name": "users"}, {"name": "products"}]}
+        schema=[{"name": "users"}, {"name": "products"}]
     )
     
     db_config2 = DbConfig(
+        id="mysql_db",
         db_type="mysql",
         configuration={"host": "localhost"},
         description="MySQL DB",
-        schema={"tables": [{"name": "customers"}, {"name": "orders"}, {"name": "items"}]}
+        schema=[{"name": "customers"}, {"name": "orders"}, {"name": "items"}]
     )
     
     # Create mock context
     mock_ctx = MagicMock()
     mock_lifespan_ctx = MagicMock()
-    mock_lifespan_ctx.query_runners = [db_config1, db_config2]
+    mock_lifespan_ctx.db_configs = {
+        "pg_db": db_config1,
+        "mysql_db": db_config2
+    }
     mock_ctx.request_context.lifespan_context = mock_lifespan_ctx
     
     # Call the function
     output = list_databases(mock_ctx)
     
     # Verify output contains database info
-    assert "0. PostgreSQL DB (Type: pg) - 2 tables" in output
-    assert "1. MySQL DB (Type: mysql) - 3 tables" in output
+    assert "ID: pg_db - PostgreSQL DB (Type: pg)" in output
+    assert "ID: mysql_db - MySQL DB (Type: mysql)" in output
 
 def test_list_databases_no_schema():
     """Test list_databases tool with no schema information"""
@@ -441,6 +469,7 @@ def test_list_databases_no_schema():
     
     # Create mock DbConfigs
     db_config1 = DbConfig(
+        id="pg_db",
         db_type="pg",
         configuration={"host": "localhost"},
         description="PostgreSQL DB"
@@ -449,14 +478,14 @@ def test_list_databases_no_schema():
     # Create mock context
     mock_ctx = MagicMock()
     mock_lifespan_ctx = MagicMock()
-    mock_lifespan_ctx.query_runners = [db_config1]
+    mock_lifespan_ctx.db_configs = {"pg_db": db_config1}
     mock_ctx.request_context.lifespan_context = mock_lifespan_ctx
     
     # Call the function
     output = list_databases(mock_ctx)
     
     # Verify output contains database info without table count
-    assert "0. PostgreSQL DB (Type: pg)" in output
+    assert "ID: pg_db - PostgreSQL DB (Type: pg)" in output
     assert "tables" not in output
 
 def test_find_table_found():
@@ -464,23 +493,19 @@ def test_find_table_found():
     from database_mcp.mcp_server import find_table
     
     # Create schemas with tables
-    schema1 = {
-        "tables": [
-            {"name": "users"},
-            {"name": "products"}
-        ]
-    }
+    schema1 = [
+        {"name": "users"},
+        {"name": "products"}
+    ]
     
-    schema2 = {
-        "tables": [
-            {"name": "customers"},
-            {"name": "orders"},
-            {"name": "users"}  # Also in schema2
-        ]
-    }
+    schema2 = [
+        {"name": "customers"},
+        {"name": "orders"}
+    ]
     
     # Create mock DbConfigs
     db_config1 = DbConfig(
+        id="pg_db",
         db_type="pg",
         configuration={"host": "localhost"},
         description="PostgreSQL DB",
@@ -488,6 +513,7 @@ def test_find_table_found():
     )
     
     db_config2 = DbConfig(
+        id="mysql_db",
         db_type="mysql",
         configuration={"host": "localhost"},
         description="MySQL DB",
@@ -497,77 +523,32 @@ def test_find_table_found():
     # Create mock context
     mock_ctx = MagicMock()
     mock_lifespan_ctx = MagicMock()
-    mock_lifespan_ctx.query_runners = [db_config1, db_config2]
+    mock_lifespan_ctx.db_configs = {
+        "pg_db": db_config1,
+        "mysql_db": db_config2
+    }
     mock_ctx.request_context.lifespan_context = mock_lifespan_ctx
     
     # Call the function
     output = find_table("users", mock_ctx)
     
-    # Verify output contains both database references
+    # Verify output shows the table was found
     assert "Table 'users' was found in the following databases:" in output
-    assert "Database 0: PostgreSQL DB (Type: pg)" in output
-    assert "Database 1: MySQL DB (Type: mysql)" in output
+    assert "Database ID: pg_db - PostgreSQL DB" in output
 
 def test_find_table_not_found():
     """Test find_table tool when table is not found"""
     from database_mcp.mcp_server import find_table
     
-    # Create schemas with tables
-    schema1 = {
-        "tables": [
-            {"name": "users"},
-            {"name": "products"}
-        ]
-    }
+    # Create schema with tables
+    schema = [
+        {"name": "users"},
+        {"name": "products"}
+    ]
     
     # Create mock DbConfigs
     db_config1 = DbConfig(
-        db_type="pg",
-        configuration={"host": "localhost"},
-        description="PostgreSQL DB",
-        schema=schema1
-    )
-    
-    # Create mock context
-    mock_ctx = MagicMock()
-    mock_lifespan_ctx = MagicMock()
-    mock_lifespan_ctx.query_runners = [db_config1]
-    mock_ctx.request_context.lifespan_context = mock_lifespan_ctx
-    
-    # Call the function
-    output = find_table("customers", mock_ctx)
-    
-    # Verify output indicates table not found
-    assert "Table 'customers' was not found in any database schema." in output
-
-def test_get_database_info():
-    """Test get_database_info tool"""
-    from database_mcp.mcp_server import get_database_info
-    
-    # Create schemas with tables
-    schema = {
-        "tables": [
-            {
-                "name": "users",
-                "columns": [
-                    {"name": "id"},
-                    {"name": "name"},
-                    {"name": "email"}
-                ]
-            },
-            {
-                "name": "products",
-                "columns": [
-                    {"name": "id"},
-                    {"name": "name"},
-                    {"name": "price"}
-                ]
-            }
-        ]
-    }
-    
-    # Create mock DbConfigs
-    db_config = DbConfig(
+        id="pg_db",
         db_type="pg",
         configuration={"host": "localhost"},
         description="PostgreSQL DB",
@@ -577,15 +558,60 @@ def test_get_database_info():
     # Create mock context
     mock_ctx = MagicMock()
     mock_lifespan_ctx = MagicMock()
-    mock_lifespan_ctx.query_runners = [db_config]
+    mock_lifespan_ctx.db_configs = {"pg_db": db_config1}
     mock_ctx.request_context.lifespan_context = mock_lifespan_ctx
     
-    # Call the function with specific db_index
-    output = get_database_info(mock_ctx, 0)
+    # Call the function
+    output = find_table("orders", mock_ctx)
     
-    # Verify output contains database info
-    assert "Database 0: PostgreSQL DB" in output
+    # Verify output shows the table was not found
+    assert "Table 'orders' was not found in any database schema." in output
+
+def test_get_database_info():
+    """Test get_database_info tool"""
+    from database_mcp.mcp_server import get_database_info
+    
+    # Create schema with tables
+    schema = [
+        {
+            "name": "users",
+            "columns": [
+                {"name": "id"},
+                {"name": "name"},
+                {"name": "email"}
+            ]
+        },
+        {
+            "name": "products",
+            "columns": [
+                {"name": "id"},
+                {"name": "name"},
+                {"name": "price"}
+            ]
+        }
+    ]
+    
+    # Create mock DbConfigs
+    db_config = DbConfig(
+        id="pg_db",
+        db_type="pg",
+        configuration={"host": "localhost"},
+        description="PostgreSQL DB",
+        schema=schema
+    )
+    
+    # Create mock context
+    mock_ctx = MagicMock()
+    mock_lifespan_ctx = MagicMock()
+    mock_lifespan_ctx.db_configs = {"pg_db": db_config}
+    mock_ctx.request_context.lifespan_context = mock_lifespan_ctx
+    
+    # Call the function with specific db_id
+    output = get_database_info(mock_ctx, db_id="pg_db")
+    
+    # Verify output contains database info and schema summary
+    assert "Database ID: pg_db" in output
+    assert "Description: PostgreSQL DB" in output
     assert "Type: pg" in output
-    assert "Schema Summary:" in output
     assert "- users (id, name, email)" in output
     assert "- products (id, name, price)" in output 
