@@ -136,12 +136,6 @@ pip install database-mcp
 
 ## Running the Server
 
-### Development Mode
-
-```bash
-mcp dev mcp_server.py
-```
-
 ### Production Mode
 
 ```bash

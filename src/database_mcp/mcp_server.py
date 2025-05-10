@@ -20,6 +20,7 @@ logger = logging.getLogger("server")
 # Structure for database configuration
 @dataclass
 class DbConfig:
+    id: str
     db_type: str
     configuration: Dict[str, Any]
     description: str
@@ -75,20 +76,29 @@ def init_query_runners(testing=False, test_db_type=None, test_db_config=None, te
             if not isinstance(db_configs_list, list) or len(db_configs_list) == 0:
                 raise ValueError("DB_CONFIGS must be a non-empty JSON array")
             
-            query_runners = []
-            for config in db_configs_list:
+            query_runners = {}
+            for i, config in enumerate(db_configs_list):
                 if not isinstance(config, dict) or "db_type" not in config or "configuration" not in config or "description" not in config:
                     raise ValueError("Each DB_CONFIG must contain db_type, configuration, and description")
+                
+                # Generate a meaningful ID if not provided
+                db_id = config.get("id", "")
+                if not db_id:
+                    # Create an ID based on database type and description
+                    db_type_abbr = config["db_type"][:2].lower()
+                    desc_part = ''.join(c for c in config["description"] if c.isalnum())[:8].lower()
+                    db_id = f"{db_type_abbr}_{desc_part}_{i}"
                 
                 db_config = DbConfig(
                     db_type=config["db_type"],
                     configuration=config["configuration"],
-                    description=config["description"]
+                    description=config["description"],
+                    id=db_id
                 )
                 
-                print(f"Initializing query runner for {db_config.db_type} database: {db_config.description}")
+                # print(f"Initializing query runner for {db_config.db_type} database: {db_config.description}")
                 db_config.query_runner = QueryRunner(db_type=db_config.db_type, configuration=db_config.configuration)
-                query_runners.append(db_config)
+                query_runners[db_id] = db_config
                 
             print(f"Initialized {len(query_runners)} database connections")
             return query_runners
@@ -114,16 +124,24 @@ def init_query_runners(testing=False, test_db_type=None, test_db_config=None, te
     if not db_type or not db_config:
         raise ValueError("Database type and configuration are required")
 
-    print(f"Initializing single query runner for {db_type} database")
+    # print(f"Initializing single query runner for {db_type} database")
+    
+    # Generate a meaningful ID for the single database
+    db_id = f"{db_type.lower()}_default"
     
     db_config_obj = DbConfig(
         db_type=db_type,
         configuration=db_config,
-        description="Default database connection"
+        description="Default database connection",
+        id=db_id
     )
     db_config_obj.query_runner = QueryRunner(db_type=db_type, configuration=db_config)
     
-    return [db_config_obj]
+    query_runners = {db_id: db_config_obj}
+    return query_runners
+
+# Initialize query_runners as a dictionary
+query_runners = {}
 
 # Initialize only if not being imported by test
 _is_test = 'pytest' in sys.modules
@@ -143,22 +161,20 @@ if not _is_test:
         print("   Example: python mcp_server.py --db-type mysql --db-config '{\"host\":\"localhost\",\"port\":3306,\"user\":\"root\",\"password\":\"pass\",\"database\":\"test\"}'")
         print("\n3. For direct execution with multiple databases:")
         print("   python mcp_server.py --db-configs '[{\"db_type\":\"pg\",\"configuration\":{\"host\":\"localhost\"},\"description\":\"My PostgreSQL DB\"}]'")
-    sys.exit(1)
+        sys.exit(1)
 
     # Fetch schema information for all databases
-    for db_config in query_runners:
+    for db_config in query_runners.values():
         try:
             db_config.schema = db_config.query_runner.get_schema()
         except Exception as e:
             print(f"Warning: Could not fetch schema for {db_config.description}: {str(e)}")
-else:
-    # For testing only - create an empty list that tests will populate
-    query_runners = []
+
 
 # Define database context that will be available to all handlers
 @dataclass
 class DbContext:
-    query_runners: List[DbConfig]
+    query_runners: Dict[str, DbConfig]
     last_query: Optional[str] = None
     last_result: Optional[Dict[str, Any]] = None
     query_history: List[str] = None
@@ -171,7 +187,9 @@ class DbContext:
         """Gets the default query runner (first one if multiple exist)"""
         if not self.query_runners:
             raise ValueError("No database connections available")
-        return self.query_runners[0].query_runner
+        # Get the first database in the dictionary
+        first_db_id = next(iter(self.query_runners))
+        return self.query_runners[first_db_id].query_runner
 
 # Server lifespan manager
 @asynccontextmanager
@@ -185,7 +203,7 @@ async def db_lifespan(server: FastMCP) -> AsyncIterator[DbContext]:
     
     try:
         # Test connection on startup for all databases
-        for db_config in query_runners:
+        for db_config in db_context.query_runners.values():
             try:
                 db_config.query_runner.test_connection()
                 print(f"Successfully connected to {db_config.description}")
@@ -201,29 +219,55 @@ async def db_lifespan(server: FastMCP) -> AsyncIterator[DbContext]:
 mcp = FastMCP("Legion Multi-Database Access", lifespan=db_lifespan)
 
 # Define resources
-@mcp.resource("schema://all")
-def get_schema(ctx: Context) -> str:
-    """Get the database schemas for all databases"""
+@mcp.resource("resource://schema/{database_id}")
+def get_schema(database_id: Optional[str] = None) -> str:
+    """Get the database schemas for all databases or a specific database
+    
+    Args:
+        database_id: Optional database ID to get schema for. If None, get schemas for all databases.
+    """
     try:
-        db_context = ctx.request_context.lifespan_context
         schemas = []
         
-        for i, db_config in enumerate(db_context.query_runners):
+        if database_id is not None and database_id != "all":
+            # Get schema for specific database
+            if database_id not in query_runners:
+                return f"Error: Invalid database ID {database_id}"
+            
+            db_config = query_runners[database_id]
             try:
                 schema = db_config.query_runner.get_schema()
                 schemas.append({
-                    "index": i,
+                    "id": database_id,
                     "description": db_config.description,
                     "db_type": db_config.db_type,
                     "schema": schema
                 })
             except Exception as e:
                 schemas.append({
-                    "index": i,
+                    "id": database_id,
                     "description": db_config.description,
                     "db_type": db_config.db_type,
                     "error": str(e)
                 })
+        else:
+            # Get schema for all databases
+            for db_id, db_config in query_runners.items():
+                try:
+                    schema = db_config.query_runner.get_schema()
+                    schemas.append({
+                        "id": db_id,
+                        "description": db_config.description,
+                        "db_type": db_config.db_type,
+                        "schema": schema
+                    })
+                except Exception as e:
+                    schemas.append({
+                        "id": db_id,
+                        "description": db_config.description,
+                        "db_type": db_config.db_type,
+                        "error": str(e)
+                    })
         
         return json.dumps(schemas)
     except Exception as e:
@@ -239,7 +283,10 @@ def get_query_history(ctx: Context) -> str:
     
     result = "Query History:\n"
     for entry in db_context.query_history:
-        result += f"- {entry['query']} (Database: {entry['db_name']})\n"
+        if isinstance(entry, str):
+            result += f"- {entry}\n"
+        else:
+            result += f"- {entry['query']} (Database: {entry['db_name']})\n"
     
     return result
 
@@ -252,8 +299,8 @@ def list_databases(ctx: Context) -> str:
         return "No database connections available."
     
     db_list = []
-    for i, db_config in enumerate(db_context.query_runners):
-        db_info = f"{i}. {db_config.description} (Type: {db_config.db_type})"
+    for db_id, db_config in db_context.query_runners.items():
+        db_info = f"ID: {db_id} - {db_config.description} (Type: {db_config.db_type})"
         
         # Add table count if schema is available
         if db_config.schema:
@@ -267,7 +314,7 @@ def list_databases(ctx: Context) -> str:
 @mcp.prompt()
 def select_database() -> str:
     """Help user select which database to use"""
-    return "I need to determine which database to use for your query. Please use the list_databases tool first, then tell me which database index to use."
+    return "I need to determine which database to use for your query. Please use the list_databases tool first, then tell me which database ID to use."
 
 def get_database_schema_summary(db_config: DbConfig) -> str:
     """Create a summary of the database schema for display"""
@@ -298,15 +345,16 @@ def get_database_schema_summary(db_config: DbConfig) -> str:
     return "\n".join(table_summaries)
 
 @mcp.tool()
-def get_database_info(ctx: Context, db_index: Optional[int] = None) -> str:
+def get_database_info(ctx: Context, db_id: Optional[str] = None) -> str:
     """Get detailed information about a database including schema summary"""
     db_context = ctx.request_context.lifespan_context
     
-    if db_index is None:
+    if db_id is None:
         # Return info for all databases
         all_info = []
-        for i, db_config in enumerate(db_context.query_runners):
-            info = f"Database {i}: {db_config.description}\n"
+        for db_id, db_config in db_context.query_runners.items():
+            info = f"Database ID: {db_id}\n"
+            info += f"Description: {db_config.description}\n"
             info += f"Type: {db_config.db_type}\n"
             info += f"Schema Summary:\n{get_database_schema_summary(db_config)}"
             all_info.append(info)
@@ -314,25 +362,26 @@ def get_database_info(ctx: Context, db_index: Optional[int] = None) -> str:
         return "\n\n".join(all_info)
     
     # Return info for specific database
-    if db_index < 0 or db_index >= len(db_context.query_runners):
-        return f"Invalid database index: {db_index}"
+    if db_id not in db_context.query_runners:
+        return f"Invalid database ID: {db_id}"
     
-    db_config = db_context.query_runners[db_index]
-    info = f"Database {db_index}: {db_config.description}\n"
+    db_config = db_context.query_runners[db_id]
+    info = f"Database ID: {db_id}\n"
+    info += f"Description: {db_config.description}\n"
     info += f"Type: {db_config.db_type}\n"
     info += f"Schema Summary:\n{get_database_schema_summary(db_config)}"
     
     return info
 
-def _execute_and_get_results(query: str, ctx: Context, db_index: int) -> Dict[str, Any]:
+def _execute_and_get_results(query: str, ctx: Context, db_id: str) -> Dict[str, Any]:
     """Helper function to execute query and get formatted results"""
     db_context = ctx.request_context.lifespan_context
     
-    if db_index < 0 or db_index >= len(db_context.query_runners):
-        raise ValueError(f"Invalid database index: {db_index}")
+    if db_id not in db_context.query_runners:
+        raise ValueError(f"Invalid database ID: {db_id}")
     
     # Get the selected query runner
-    db_config = db_context.query_runners[db_index]
+    db_config = db_context.query_runners[db_id]
     query_runner = db_config.query_runner
     
     # Execute query
@@ -341,7 +390,7 @@ def _execute_and_get_results(query: str, ctx: Context, db_index: int) -> Dict[st
     # Update query history in the context
     db_context.last_query = query
     db_context.last_result = result
-    db_context.query_history.append(f"[{db_config.description}] {query}")
+    db_context.query_history.append(f"[{db_id}] [{db_config.description}] {query}")
     
     # Extract column info
     columns = result.get('columns', [])
@@ -365,7 +414,7 @@ def _execute_and_get_results(query: str, ctx: Context, db_index: int) -> Dict[st
         'raw_rows': rows,
         'row_count': row_count,
         'database': {
-            'index': db_index,
+            'id': db_id,
             'description': db_config.description,
             'db_type': db_config.db_type
         }
@@ -373,10 +422,10 @@ def _execute_and_get_results(query: str, ctx: Context, db_index: int) -> Dict[st
 
 # Define tools
 @mcp.tool()
-def execute_query(query: str, ctx: Context, db_index: int) -> str:
+def execute_query(query: str, ctx: Context, db_id: str) -> str:
     """Execute a SQL query and return results as a markdown table"""
     try:
-        result = _execute_and_get_results(query, ctx, db_index)
+        result = _execute_and_get_results(query, ctx, db_id)
         
         # Add database info to the output
         db_info = f"Database: {result['database']['description']} (Type: {result['database']['db_type']})"
@@ -397,17 +446,17 @@ def execute_query(query: str, ctx: Context, db_index: int) -> str:
             
         return result_table
     except ValueError as e:
-        if "Invalid database index" in str(e):
-            return f"Error: Invalid database index {db_index}"
+        if "Invalid database ID" in str(e):
+            return f"Error: {str(e)}"
         return f"Error executing query: {str(e)}"
     except Exception as e:
         return f"Error executing query: {str(e)}"
 
 @mcp.tool()
-def execute_query_json(query: str, ctx: Context, db_index: int) -> str:
+def execute_query_json(query: str, ctx: Context, db_id: str) -> str:
     """Execute a SQL query and return results as JSON"""
     try:
-        result = _execute_and_get_results(query, ctx, db_index)
+        result = _execute_and_get_results(query, ctx, db_id)
         
         # Create a more compact representation for JSON output
         output = {
@@ -421,20 +470,20 @@ def execute_query_json(query: str, ctx: Context, db_index: int) -> str:
         return f"Error executing query: {str(e)}"
 
 @mcp.tool()
-def get_table_columns(table_name: str, ctx: Context, db_index: int) -> str:
+def get_table_columns(table_name: str, ctx: Context, db_id: str) -> str:
     """Get column names for a specific table"""
     try:
         db_context = ctx.request_context.lifespan_context
         
-        if db_index < 0 or db_index >= len(db_context.query_runners):
-            raise ValueError(f"Invalid database index: {db_index}")
+        if db_id not in db_context.query_runners:
+            raise ValueError(f"Invalid database ID: {db_id}")
         
-        db_config = db_context.query_runners[db_index]
+        db_config = db_context.query_runners[db_id]
         columns = db_config.query_runner.get_table_columns(table_name)
         
         return json.dumps({
             'database': {
-                'index': db_index,
+                'id': db_id,
                 'description': db_config.description,
                 'db_type': db_config.db_type
             },
@@ -445,20 +494,20 @@ def get_table_columns(table_name: str, ctx: Context, db_index: int) -> str:
         return f"Error getting columns for table {table_name}: {str(e)}"
 
 @mcp.tool()
-def get_table_types(table_name: str, ctx: Context, db_index: int) -> str:
+def get_table_types(table_name: str, ctx: Context, db_id: str) -> str:
     """Get column types for a specific table"""
     try:
         db_context = ctx.request_context.lifespan_context
         
-        if db_index < 0 or db_index >= len(db_context.query_runners):
-            raise ValueError(f"Invalid database index: {db_index}")
+        if db_id not in db_context.query_runners:
+            raise ValueError(f"Invalid database ID: {db_id}")
         
-        db_config = db_context.query_runners[db_index]
+        db_config = db_context.query_runners[db_id]
         types = db_config.query_runner.get_table_types(table_name)
         
         return json.dumps({
             'database': {
-                'index': db_index,
+                'id': db_id,
                 'description': db_config.description,
                 'db_type': db_config.db_type
             },
@@ -469,22 +518,22 @@ def get_table_types(table_name: str, ctx: Context, db_index: int) -> str:
         return f"Error getting types for table {table_name}: {str(e)}"
 
 @mcp.tool()
-def describe_table(ctx: Context, table_name: str, db_index: int) -> str:
+def describe_table(ctx: Context, table_name: str, db_id: str) -> str:
     """Get detailed description of a table including column names and types"""
     try:
         db_context = ctx.request_context.lifespan_context
         
-        if db_index < 0 or db_index >= len(db_context.query_runners):
-            return f"Error: Invalid database index {db_index}"
+        if db_id not in db_context.query_runners:
+            return f"Error: Invalid database ID {db_id}"
         
-        db_config = db_context.query_runners[db_index]
+        db_config = db_context.query_runners[db_id]
         
         # Get column names and types
         columns = db_config.query_runner.get_table_columns(table_name)
         types = db_config.query_runner.get_table_types(table_name)
         
         # Build description
-        description = f"Table: {table_name} in Database: {db_config.description}\n\n"
+        description = f"Table: {table_name} in Database: {db_config.description} (ID: {db_id})\n\n"
         description += "Columns:\n"
         
         for column in columns:
@@ -496,15 +545,15 @@ def describe_table(ctx: Context, table_name: str, db_index: int) -> str:
         return f"Error describing table {table_name}: {str(e)}"
 
 @mcp.tool()
-def get_table_sample(ctx: Context, table_name: str, db_index: int, limit: int = 10) -> str:
+def get_table_sample(ctx: Context, table_name: str, db_id: str, limit: int = 10) -> str:
     """Get a sample of data from a table"""
     try:
         db_context = ctx.request_context.lifespan_context
         
-        if db_index < 0 or db_index >= len(db_context.query_runners):
-            return f"Error: Invalid database index {db_index}"
+        if db_id not in db_context.query_runners:
+            return f"Error: Invalid database ID {db_id}"
         
-        db_config = db_context.query_runners[db_index]
+        db_config = db_context.query_runners[db_id]
         query_runner = db_config.query_runner
         
         # Construct a safe query to sample data
@@ -537,7 +586,7 @@ def get_table_sample(ctx: Context, table_name: str, db_index: int, limit: int = 
                 row_values = [str(cell) for cell in row]
             table_rows.append(" | ".join(row_values))
         
-        sample_data = f"Sample data from table '{table_name}' in Database: {db_config.description}\n\n"
+        sample_data = f"Sample data from table '{table_name}' in Database: {db_config.description} (ID: {db_id})\n\n"
         sample_data += f"{header}\n{separator}\n" + "\n".join(table_rows)
         
         if not rows:
@@ -553,14 +602,14 @@ def find_table(table_name: str, ctx: Context) -> str:
     db_context = ctx.request_context.lifespan_context
     found_in = []
     
-    for i, db_config in enumerate(db_context.query_runners):
+    for db_id, db_config in db_context.query_runners.items():
         if not db_config.schema:
             continue
         
         for table in db_config.schema.get("tables", []):
             if table.get("name") == table_name:
                 found_in.append({
-                    "db_index": i,
+                    "db_id": db_id,
                     "db_name": db_config.description,
                     "db_type": db_config.db_type
                 })
@@ -571,7 +620,7 @@ def find_table(table_name: str, ctx: Context) -> str:
     
     result = f"Table '{table_name}' was found in the following databases:\n"
     for db in found_in:
-        result += f"- Database {db['db_index']}: {db['db_name']} (Type: {db['db_type']})\n"
+        result += f"- Database ID: {db['db_id']} - {db['db_name']} (Type: {db['db_type']})\n"
     
     return result
 
@@ -592,7 +641,7 @@ def optimize_query(query: str) -> str:
     return f"Can you optimize the following SQL query for better performance?\n\n```sql\n{query}\n```"
 
 def main():
-    print(f"Starting Legion Multi-Database MCP server with {len(query_runners)} database connections...")
+    # print(f"Starting Legion Multi-Database MCP server with {len(query_runners)} database connections...")
     mcp.run()
 
 if __name__ == "__main__":
