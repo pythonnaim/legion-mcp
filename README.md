@@ -6,6 +6,20 @@ A server that helps people access and query data in databases using the Legion Q
 This tool is provided by [Legion AI](https://thelegionai.com/). To use the full-fledged and fully powered AI data analytics tool, please visit the site. Email us if there is one database you want us to support.
 # End Generation Here
 
+## Why Choose Database MCP
+
+Database MCP stands out from other database access solutions for several compelling reasons:
+
+- **Unified Multi-Database Interface**: Connect to PostgreSQL, MySQL, SQL Server, and other databases through a single consistent API - no need to learn different client libraries for each database type.
+- **AI-Ready Integration**: Built specifically for AI assistant interactions through the Model Context Protocol (MCP), enabling natural language database operations.
+- **Zero-Configuration Schema Discovery**: Automatically discovers and exposes database schemas without manual configuration or mapping.
+- **Database-Agnostic Tools**: Find tables, explore schemas, and execute queries with the same set of tools regardless of the underlying database technology.
+- **Secure Credential Management**: Handles database authentication details securely, separating credentials from application code.
+- **Simple Deployment**: Works with modern AI development environments like LangChain, FastAPI, and others with minimal setup.
+- **Extensible Design**: Easily add custom tools and prompts to enhance functionality for specific use cases.
+
+Whether you're building AI agents that need database access or simply want a unified interface to multiple databases, Database MCP provides a streamlined solution that dramatically reduces development time and complexity.
+
 ## Features
 
 - Multi-database support - connect to multiple databases simultaneously
@@ -97,7 +111,7 @@ REPLACE DB_TYPE and DB_CONFIG with your connection info.
           "database-mcp"
         ],
         "env": {
-          "DB_CONFIGS": "[{\"db_type\":\"pg\",\"configuration\":{\"host\":\"localhost\",\"port\":5432,\"user\":\"user\",\"password\":\"pw\",\"dbname\":\"postgres\"},\"description\":\"PostgreSQL Database\"},{\"db_type\":\"mysql\",\"configuration\":{\"host\":\"localhost\",\"port\":3306,\"user\":\"root\",\"password\":\"pass\",\"database\":\"mysql\"},\"description\":\"MySQL Database\"}]"
+          "DB_CONFIGS": "[{\"id\":\"pg_main\",\"db_type\":\"pg\",\"configuration\":{\"host\":\"localhost\",\"port\":5432,\"user\":\"user\",\"password\":\"pw\",\"dbname\":\"postgres\"},\"description\":\"PostgreSQL Database\"},{\"id\":\"mysql_data\",\"db_type\":\"mysql\",\"configuration\":{\"host\":\"localhost\",\"port\":3306,\"user\":\"root\",\"password\":\"pass\",\"database\":\"mysql\"},\"description\":\"MySQL Database\"}]"
         },
         "disabled": true,
         "autoApprove": []
@@ -155,7 +169,15 @@ mcp dev mcp_server.py
 #### Environment Variables (Multiple Databases)
 
 ```bash
+export DB_CONFIGS='[{"id":"pg_main","db_type":"pg","configuration":{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"},"description":"PostgreSQL Database"},{"id":"mysql_users","db_type":"mysql","configuration":{"host":"localhost","port":3306,"user":"root","password":"pass","database":"mysql"},"description":"MySQL Database"}]'
+mcp dev mcp_server.py
+```
+
+If you don't specify an ID, the system will generate one automatically based on the database type and description:
+
+```bash
 export DB_CONFIGS='[{"db_type":"pg","configuration":{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"},"description":"PostgreSQL Database"},{"db_type":"mysql","configuration":{"host":"localhost","port":3306,"user":"root","password":"pass","database":"mysql"},"description":"MySQL Database"}]'
+# IDs will be generated as something like "pg_postgres_0" and "my_mysqldb_1"
 mcp dev mcp_server.py
 ```
 
@@ -168,19 +190,51 @@ python mcp_server.py --db-type pg --db-config '{"host":"localhost","port":5432,"
 #### Command Line Arguments (Multiple Databases)
 
 ```bash
-python mcp_server.py --db-configs '[{"db_type":"pg","configuration":{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"},"description":"PostgreSQL Database"},{"db_type":"mysql","configuration":{"host":"localhost","port":3306,"user":"root","password":"pass","database":"mysql"},"description":"MySQL Database"}]'
+python mcp_server.py --db-configs '[{"id":"pg_main","db_type":"pg","configuration":{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"},"description":"PostgreSQL Database"},{"id":"mysql_users","db_type":"mysql","configuration":{"host":"localhost","port":3306,"user":"root","password":"pass","database":"mysql"},"description":"MySQL Database"}]'
 ```
+
+Note that you can specify custom IDs for each database using the `id` field, or let the system generate them based on database type and description.
 
 ## Multi-Database Support
 
 When connecting to multiple databases, you need to specify which database to use for each query:
 
-1. Use the `list_databases` tool to see available databases with their indices
+1. Use the `list_databases` tool to see available databases with their IDs
 2. Use `get_database_info` to view schema details of databases
 3. Use `find_table` to locate a table across all databases
-4. Provide the `db_index` parameter to tools like `execute_query`, `get_table_columns`, etc.
+4. Provide the `db_id` parameter to tools like `execute_query`, `get_table_columns`, etc.
+
+Database connections are managed internally as a dictionary of `DbConfig` objects, with each database having a unique ID. Schema information is represented as a list of table objects, where each table contains its name and column information.
 
 The `select_database` prompt guides users through the database selection process.
+
+## Schema Representation
+
+Database schemas are represented as a list of table objects, with each table containing information about its columns:
+
+```json
+[
+  {
+    "name": "users",
+    "columns": [
+      {"name": "id", "type": "integer"},
+      {"name": "username", "type": "varchar"},
+      {"name": "email", "type": "varchar"}
+    ]
+  },
+  {
+    "name": "orders",
+    "columns": [
+      {"name": "id", "type": "integer"},
+      {"name": "user_id", "type": "integer"},
+      {"name": "product_id", "type": "integer"},
+      {"name": "quantity", "type": "integer"}
+    ]
+  }
+]
+```
+
+This representation makes it easy to programmatically access table and column information while keeping a clean hierarchical structure.
 
 ## Exposed MCP Capabilities
 
@@ -200,8 +254,12 @@ The `select_database` prompt guides users through the database selection process
 | `get_table_types` | Get column types for a specific table |
 | `get_query_history` | Get the recent query history |
 | `list_databases` | List all available database connections |
-| `get_database_info` | Get detailed information about a database |
+| `get_database_info` | Get detailed information about a database including schema |
 | `find_table` | Find which database contains a specific table |
+| `describe_table` | Get detailed description of a table including column names and types |
+| `get_table_sample` | Get a sample of data from a table |
+
+All database-specific tools (like `execute_query`, `get_table_columns`, etc.) require a `db_id` parameter to specify which database to use.
 
 ### Prompts
 
