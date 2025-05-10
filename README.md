@@ -242,7 +242,7 @@ This representation makes it easy to programmatically access table and column in
 
 | Resource | Description |
 |----------|-------------|
-| `schema://all` | Get the schemas for all configured databases |
+| `resource://schema/{database_id}` | Get the schemas for one or all configured databases |
 
 ### Tools
 
@@ -282,9 +282,14 @@ pytest
 ### Publishing
 
 ```bash
-rm -rf dist/ build/ *.egg-info/ && python -m build
-python -m build
-python -m twine upload dist/*
+# Clean up build artifacts
+rm -rf dist/ build/ 
+# Remove any .egg-info directories if they exist
+find . -name "*.egg-info" -type d -exec rm -rf {} + 2>/dev/null || true
+# Build the package
+uv run python -m build
+# Upload to PyPI
+uv run python -m twine upload dist/*
 ```
 
 ## License

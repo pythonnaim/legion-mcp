@@ -33,5 +33,11 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.uv]
+dev-dependencies = [
+    "build>=1.2.2.post1",
+    "twine>=6.1.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/TheRaLabs/legion-mcp"
