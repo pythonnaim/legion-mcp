@@ -1,4 +1,4 @@
-# Database MCP Server (by Legion AI)
+# Multi-Database MCP Server (by Legion AI)
 
 A server that helps people access and query data in databases using the Legion Query Runner with integration of the Model Context Protocol (MCP) Python SDK.
 
@@ -163,14 +163,14 @@ python mcp_server.py
 ```bash
 export DB_TYPE="pg"  # or mysql, postgresql, etc.
 export DB_CONFIG='{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
-mcp dev mcp_server.py
+uv run src/database_mcp/mcp_server.py
 ```
 
 #### Environment Variables (Multiple Databases)
 
 ```bash
 export DB_CONFIGS='[{"id":"pg_main","db_type":"pg","configuration":{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"},"description":"PostgreSQL Database"},{"id":"mysql_users","db_type":"mysql","configuration":{"host":"localhost","port":3306,"user":"root","password":"pass","database":"mysql"},"description":"MySQL Database"}]'
-mcp dev mcp_server.py
+uv run src/database_mcp/mcp_server.py
 ```
 
 If you don't specify an ID, the system will generate one automatically based on the database type and description:
@@ -178,7 +178,7 @@ If you don't specify an ID, the system will generate one automatically based on 
 ```bash
 export DB_CONFIGS='[{"db_type":"pg","configuration":{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"},"description":"PostgreSQL Database"},{"db_type":"mysql","configuration":{"host":"localhost","port":3306,"user":"root","password":"pass","database":"mysql"},"description":"MySQL Database"}]'
 # IDs will be generated as something like "pg_postgres_0" and "my_mysqldb_1"
-mcp dev mcp_server.py
+uv run src/database_mcp/mcp_server.py
 ```
 
 #### Command Line Arguments (Single Database)
@@ -271,6 +271,18 @@ All database-specific tools (like `execute_query`, `get_table_columns`, etc.) re
 | `select_database` | Help user select which database to use |
 
 ## Development
+
+### Using MCP Inspector
+
+run this to start the inspector
+```bash
+npx @modelcontextprotocol/inspector uv run src/database_mcp/mcp_server.py
+```
+
+then in the command input field, set something like
+```
+run src/database_mcp/mcp_server.py --db-type pg --db-config '{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
+```
 
 ### Testing
 

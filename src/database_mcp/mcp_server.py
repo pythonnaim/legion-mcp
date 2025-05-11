@@ -121,8 +121,11 @@ def init_config(testing=False, test_db_type=None, test_db_config=None, test_db_c
         print(f"Error parsing DB_CONFIG: {str(e)}")
         raise
 
+    # Allowing for empty configuration for now, this will render this MCP server useless
+    # but it will not crash
     if not db_type or not db_config:
-        raise ValueError("Database type and configuration are required")
+        print("Database type and configuration are required...")
+        return {}
 
     # print(f"Initializing single query runner for {db_type} database")
     
