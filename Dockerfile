@@ -30,7 +30,7 @@ ENV DB_TYPE="pg"
 ENV DB_CONFIG='{"host":"localhost","port":5432,"user":"username","password":"password","dbname":"database_name"}'
 
 # Expose the default MCP server port
-EXPOSE 5678
+EXPOSE 8080
 
 # Set the entrypoint command to run the MCP server
 ENTRYPOINT ["database-mcp"] 
